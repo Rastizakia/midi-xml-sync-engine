@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pro MIDI & MusicXML Timeline Player</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.8/build/opensheetmusicdisplay.min.js"></script>
+</head>
+<body class="pro-theme">
+  <header class="main-toolbar">
+    <div class="toolbar-section">
+      <div class="file-upload">
+        <label for="midi-input" class="btn btn-secondary">Load MIDI</label>
+        <input type="file" id="midi-input" accept=".mid,.midi" hidden>
+      </div>
+      <div class="file-upload">
+        <label for="xml-input" class="btn btn-secondary">Load MusicXML</label>
+        <input type="file" id="xml-input" accept=".xml,.musicxml" hidden>
+      </div>
+    </div>
+
+    <div class="toolbar-section playback-controls">
+      <button id="play-btn" class="btn btn-primary" disabled>Play</button>
+      <button id="metronome-btn" class="btn btn-toggle">Metronome: OFF</button>
+      <button id="loop-toggle" class="btn btn-toggle">Loop: OFF</button>
+    </div>
+
+    <div class="toolbar-section status-info">
+      <span id="current-bar-display">Bar: 1</span>
+      <span id="current-tempo-display">Tempo: -- BPM</span>
+    </div>
+  </header>
+
+  <main class="app-content">
+    <section class="navigation-zone" id="navigation-zone">
+      <div id="marker-buttons" class="marker-group"></div>
+    </section>
+
+    <section id="timeline-container" class="timeline-viewport">
+      <div id="timeline" class="timeline-surface"></div>
+      <div id="loop-area" class="loop-region"></div>
+      <div id="loop-start" class="loop-marker start"></div>
+      <div id="loop-end" class="loop-marker end"></div>
+      <div id="playhead" class="playhead"></div>
+    </section>
+
+    <section id="osmd-container" class="sheet-music-viewer"></section>
+  </main>
+
+  <footer class="app-status-bar">
+    <span id="status-message">System Ready</span>
+    <span id="version-info">Engine v1.2.0-stable</span>
+  </footer>
+
+  <script src="./script.js"></script>
+</body>
+</html>
