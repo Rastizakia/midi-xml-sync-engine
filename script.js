@@ -415,18 +415,22 @@ class MusicPlayerEngine {
     if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
   }
 
-  updateLogic() {
+updateLogic() {
     if (!this.state.isPlaying) return;
 
     const elapsed = this.getTimeSec() - this.state.startTimeSec;
     this.state.currentTick = this.state.startTick + this.secondsToTick(elapsed);
-
-    if (this.state.loopEnabled && this.state.currentTick >= this.state.loopEndTick) {
-      this.jumpToTick(this.state.loopStartTick || 0, true);
+    if (
+      this.state.loopEnabled &&
+      this.state.loopStartTick !== null && 
+      this.state.loopEndTick !== null &&
+      this.state.currentTick >= this.state.loopEndTick
+    ) {
+      this.jumpToTick(this.state.loopStartTick, true);
     }
 
     this.processMetronome();
-  }
+}
 
   processMetronome() {
     if (!this.state.metronomeEnabled) return;
@@ -597,26 +601,58 @@ class MusicPlayerEngine {
     this.elements.tempoDisplay.innerText = `Tempo: ${Math.round(bpm)} BPM`;
   }
 
-  handleKeyDown(e) {
+handleKeyDown(e) {
+    if (!this.lastSpaceTime) {
+      this.lastSpaceTime = 0;
+    }
+
     switch(e.code) {
       case "Space":
         e.preventDefault();
-        this.togglePlayback();
+        const now = performance.now();
+        if (now - this.lastSpaceTime < 300) {
+          this.stop();
+          this.jumpToTick(0);
+        } else {
+          this.togglePlayback();
+        }
+        this.lastSpaceTime = now;
         break;
+
       case "KeyL":
         this.toggleLoop();
         break;
+
       case "KeyM":
         this.toggleMetronome();
         break;
+
       case "Digit1":
         if (this.state.loopStartTick !== null) this.jumpToTick(this.state.loopStartTick);
         break;
+
       case "Digit2":
         if (this.state.loopEndTick !== null) this.jumpToTick(this.state.loopEndTick);
         break;
+      
+      case "NumpadAdd":
+      case "NumpadSubtract":
+        e.preventDefault();
+        if (!this.maps.bars.length) return;
+
+        const bar = this.tickToBar(this.state.currentTick);
+        if (!bar) return;
+
+        const ticksPerBeat = (this.state.ppq * 4) / bar.d;
+        const direction = (e.code === "NumpadAdd") ? 1 : -1;
+        let newTick = this.state.currentTick + (ticksPerBeat * direction);
+
+        newTick = Math.max(0, Math.min(newTick, this.state.totalTicks));
+
+        this.jumpToTick(newTick);
+        break;
     }
-  }
+}
 
   handleResize() {
     if (this.maps.bars.length) {
