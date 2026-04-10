@@ -162,7 +162,7 @@ class MusicPlayerEngine {
     this.updateTempoDisplay(this.maps.tempo[0].bpm);
   }
 
-  parseTrack(data, start, end) {
+parseTrack(data, start, end) {
     let p = start;
     let tick = 0;
     let lastStatus = 0;
@@ -195,7 +195,27 @@ class MusicPlayerEngine {
             if (data[p + i] >= 32 && data[p + i] <= 126) text += String.fromCharCode(data[p + i]);
           }
           text = text.trim();
-          if (text) this.maps.markers.push({ tick, text });
+
+          if (text) {
+            const lower = text.toLowerCase();
+
+            const isSongSection = /verse|chorus|intro|bridge|outro|solo|pre-chorus|interlude/i.test(lower);
+            
+            if (isSongSection) {
+              this.maps.markers.push({ tick, text });
+            } 
+            else {
+              const isTooLong = text.length > 35;
+              const isSongTitle = text.includes(" - ");
+              const isRawInstrument = /^(bass|guitar|drums?|vocals?|keyboard|piano|synth|strings?)( guitar)?$/i.test(lower);
+              const isMetadata = /copyright|score by|author|tempo=|bpm/i.test(lower);
+              const isTabInstruction = /slide|bend|mute/i.test(lower) || /[/\\|]/.test(text);
+
+              if (!isTooLong && !isSongTitle && !isRawInstrument && !isMetadata && !isTabInstruction) {
+                this.maps.markers.push({ tick, text });
+              }
+            }
+          }
         }
 
         if (meta === 0x51) {
