@@ -14,7 +14,9 @@ class MusicPlayerEngine {
       pixelsPerTick: 0.15,
       lastBeat: -1,
       currentPage: 0,
-      currentCursorIndex: 0
+      currentCursorIndex: 0,
+      isPlayheadLocked: false
+
     };
 
     this.maps = {
@@ -161,7 +163,6 @@ class MusicPlayerEngine {
 
     this.updateTempoDisplay(this.maps.tempo[0].bpm);
   }
-
 parseTrack(data, start, end) {
     let p = start;
     let tick = 0;
@@ -474,35 +475,38 @@ updateLogic() {
     this.animationFrameId = requestAnimationFrame(animate);
   }
 
-  updateVisuals() {
+updateVisuals() {
     const { playhead, timelineContainer, barDisplay } = this.elements;
-    const currentPx = this.tickToPixel(this.state.currentTick);
-
-    playhead.style.left = currentPx + "px";
 
     const currentBar = this.tickToBar(this.state.currentTick);
-    barDisplay.innerText = `Bar: ${currentBar.bar}`;
-    
-    const barsPerPage = 5;
-    const pageNum = Math.floor((currentBar.bar - 1) / barsPerPage);
-
-    if (pageNum !== this.state.currentPage) {
-      this.state.currentPage = pageNum;
-      const startBarIdx = pageNum * barsPerPage;
-      if (this.maps.bars[startBarIdx]) {
-        timelineContainer.scrollLeft = this.tickToPixel(this.maps.bars[startBarIdx].tickStart);
-      }
+    if (currentBar) {
+        barDisplay.innerText = `Bar: ${currentBar.bar}`;
     }
 
-    this.syncOSMD();
-  }
 
-  syncOSMD() {
+    const lockPointPx = timelineContainer.offsetWidth / 2;
+    const absolutePlayheadPx = this.tickToPixel(this.state.currentTick);
+
+    if (absolutePlayheadPx < lockPointPx) {
+        timelineContainer.scrollLeft = 0;
+        
+        playhead.style.left = absolutePlayheadPx + 'px';
+    } else {
+        const scrollAmount = absolutePlayheadPx - lockPointPx;
+        timelineContainer.scrollLeft = scrollAmount;
+        
+        playhead.style.left = (lockPointPx + scrollAmount) + 'px';
+    }
+    
+    this.syncOSMD();
+}
+
+syncOSMD() {
     if (!this.osmd || !this.osmd.cursor || !this.cursorTimestamps.length) return;
 
     const ticksPerWholeNote = this.state.ppq * 4;
     const targetTimestamp = this.state.currentTick / ticksPerWholeNote;
-    const tolerance = 1 / (this.state.ppq * 8);
+    const tolerance = 0.002;
 
     let lo = 0, hi = this.cursorTimestamps.length - 1, targetIdx = 0;
     while (lo <= hi) {
@@ -514,15 +518,22 @@ updateLogic() {
         hi = mid - 1;
       }
     }
-
     if (this.state.currentCursorIndex > targetIdx) {
       this.osmd.cursor.reset();
       this.state.currentCursorIndex = 0;
     }
 
-    while (this.state.currentCursorIndex < targetIdx && !this.osmd.cursor.Iterator.EndReached) {
-      this.osmd.cursor.next();
-      this.state.currentCursorIndex++;
+    const distanceToCatchUp = targetIdx - this.state.currentCursorIndex;
+    
+    if (distanceToCatchUp > 0) {
+      if (distanceToCatchUp > 2) this.osmd.cursor.hide();
+      
+      while (this.state.currentCursorIndex < targetIdx && !this.osmd.cursor.Iterator.EndReached) {
+        this.osmd.cursor.next();
+        this.state.currentCursorIndex++;
+      }
+      
+      this.osmd.cursor.show();
     }
   }
 
@@ -568,6 +579,7 @@ updateLogic() {
     this.state.loopStartTick = null;
     this.state.loopEndTick = null;
     this.state.loopEnabled = false;
+    this.state.isPlayheadLocked = false;
     this.elements.playhead.style.left = "0px";
   }
 
