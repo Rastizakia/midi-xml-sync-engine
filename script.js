@@ -639,6 +639,13 @@ handleKeyDown(e) {
         this.lastSpaceTime = now;
         break;
 
+      case "NumpadEnter":
+        e.preventDefault();
+        if (!this.state.isPlaying) {
+          this.play();
+        }
+        break;
+
       case "KeyL":
         this.toggleLoop();
         break;
@@ -647,11 +654,11 @@ handleKeyDown(e) {
         this.toggleMetronome();
         break;
 
-      case "Digit1":
+      case "Numpad1":
         if (this.state.loopStartTick !== null) this.jumpToTick(this.state.loopStartTick);
         break;
 
-      case "Digit2":
+      case "Numpad2":
         if (this.state.loopEndTick !== null) this.jumpToTick(this.state.loopEndTick);
         break;
       
@@ -672,7 +679,7 @@ handleKeyDown(e) {
         this.jumpToTick(newTick);
         break;
     }
-}
+  }
 
   handleResize() {
     if (this.maps.bars.length) {
