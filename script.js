@@ -15,7 +15,8 @@ class MusicPlayerEngine {
       lastBeat: -1,
       currentPage: 0,
       currentCursorIndex: 0,
-      lastDisplayedBpm: 0
+      lastDisplayedBpm: 0,
+      loopIsAutoSet: false
     };
 
     this.maps = {
@@ -608,6 +609,7 @@ class MusicPlayerEngine {
 
     if (e.button === 0) this.state.loopStartTick = bar.tickStart;
     if (e.button === 2) this.state.loopEndTick = bar.tickEnd;
+    this.state.loopIsAutoSet = false;
 
     this.updateLoopVisual();
   }
@@ -633,6 +635,7 @@ class MusicPlayerEngine {
     this.state.loopStartTick = null;
     this.state.loopEndTick = null;
     this.state.loopEnabled = false;
+    this.state.loopIsAutoSet = false;
     this.elements.playhead.style.left = "0px";
   }
 
@@ -677,9 +680,44 @@ class MusicPlayerEngine {
 
   toggleLoop() {
     this.state.loopEnabled = !this.state.loopEnabled;
+    
+    if (this.state.loopEnabled) {
+      if (this.state.loopStartTick === null || this.state.loopEndTick === null) {
+        this.setLoopFromCurrentMarkers();
+        this.state.loopIsAutoSet = true;
+      }
+    } else {
+      if (this.state.loopIsAutoSet) {
+        this.state.loopStartTick = null;
+        this.state.loopEndTick = null;
+        this.state.loopIsAutoSet = false;
+      }
+    }
+
     this.elements.loopToggle.innerText = `Loop: ${this.state.loopEnabled ? "ON" : "OFF"}`;
     this.elements.loopToggle.classList.toggle('active', this.state.loopEnabled);
     this.updateLoopVisual();
+  }
+
+  setLoopFromCurrentMarkers() {
+    if (!this.maps.markers.length) return;
+
+    const sortedMarkers = [...this.maps.markers].sort((a, b) => a.tick - b.tick);
+    let startTick = 0;
+    let endTick = this.state.totalTicks;
+
+    for (let i = 0; i < sortedMarkers.length; i++) {
+      if (sortedMarkers[i].tick <= this.state.currentTick) {
+        startTick = sortedMarkers[i].tick;
+      }
+      if (sortedMarkers[i].tick > this.state.currentTick) {
+        endTick = sortedMarkers[i].tick;
+        break;
+      }
+    }
+
+    this.state.loopStartTick = startTick;
+    this.state.loopEndTick = endTick;
   }
 
   updateTempoDisplay(bpm) {
@@ -770,8 +808,5 @@ class MusicPlayerEngine {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  window.app = new MusicPlayerEngine();
-});
-er("DOMContentLoaded", () => {
   window.app = new MusicPlayerEngine();
 });
