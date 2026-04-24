@@ -207,7 +207,8 @@ body.pro-theme {
 .sheet-music-viewer {
   background: white;
   border-radius: 6px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--border-color);
   height: 200px;
   position: relative;

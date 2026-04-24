@@ -14,7 +14,8 @@ class MusicPlayerEngine {
       pixelsPerTick: 0.15,
       lastBeat: -1,
       currentPage: 0,
-      currentCursorIndex: 0
+      currentCursorIndex: 0,
+      lastDisplayedBpm: 0
     };
 
     this.maps = {
@@ -159,10 +160,12 @@ class MusicPlayerEngine {
     if (this.maps.tempo.length === 0) this.maps.tempo.push({ tick: 0, bpm: 120 });
     if (this.maps.timeSignature.length === 0) this.maps.timeSignature.push({ tick: 0, n: 4, d: 4 });
 
-    this.updateTempoDisplay(this.maps.tempo[0].bpm);
+    const initialBpm = this.maps.tempo[0].bpm;
+    this.updateTempoDisplay(initialBpm);
+    this.state.lastDisplayedBpm = initialBpm;
   }
 
-parseTrack(data, start, end) {
+  parseTrack(data, start, end) {
     let p = start;
     let tick = 0;
     let lastStatus = 0;
@@ -271,6 +274,31 @@ parseTrack(data, start, end) {
   }
 
   getTimeSec() { return performance.now() / 1000; }
+
+  tickToSeconds(tick) {
+    let time = 0;
+    for (let i = 0; i < this.maps.tempo.length; i++) {
+      const t = this.maps.tempo[i];
+      const next = this.maps.tempo[i + 1];
+      const ticksPerSec = (t.bpm * this.state.ppq) / 60;
+
+      if (!next || tick < next.tick) {
+        return time + (tick - t.tick) / ticksPerSec;
+      }
+
+      time += (next.tick - t.tick) / ticksPerSec;
+    }
+    return time;
+  }
+
+  getBpmAtTick(tick) {
+    let bpm = this.maps.tempo[0] ? this.maps.tempo[0].bpm : 120;
+    for (const t of this.maps.tempo) {
+      if (tick >= t.tick) bpm = t.bpm;
+      else break;
+    }
+    return bpm;
+  }
 
   secondsToTick(sec) {
     let time = 0;
@@ -435,22 +463,33 @@ parseTrack(data, start, end) {
     if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
   }
 
-updateLogic() {
+  updateLogic() {
     if (!this.state.isPlaying) return;
 
     const elapsed = this.getTimeSec() - this.state.startTimeSec;
-    this.state.currentTick = this.state.startTick + this.secondsToTick(elapsed);
+    const startSec = this.tickToSeconds(this.state.startTick);
+    this.state.currentTick = this.secondsToTick(startSec + elapsed);
+
+    const currentBpm = this.getBpmAtTick(this.state.currentTick);
+    if (Math.abs(currentBpm - this.state.lastDisplayedBpm) > 0.1) {
+      this.updateTempoDisplay(currentBpm);
+      this.state.lastDisplayedBpm = currentBpm;
+    }
+
     if (
       this.state.loopEnabled &&
       this.state.loopStartTick !== null && 
       this.state.loopEndTick !== null &&
       this.state.currentTick >= this.state.loopEndTick
     ) {
+      const loopEndSec = this.tickToSeconds(this.state.loopEndTick);
+      const overshootSec = (startSec + elapsed) - loopEndSec;
       this.jumpToTick(this.state.loopStartTick, true);
+      this.state.startTimeSec -= overshootSec;
     }
 
     this.processMetronome();
-}
+  }
 
   processMetronome() {
     if (!this.state.metronomeEnabled) return;
@@ -515,14 +554,45 @@ updateLogic() {
       }
     }
 
-    if (this.state.currentCursorIndex > targetIdx) {
+    if (this.state.currentCursorIndex === targetIdx) return;
+
+    const isBackward = this.state.currentCursorIndex > targetIdx;
+
+    if (isBackward) {
+      this.osmd.cursor.followCursor = false;
       this.osmd.cursor.reset();
       this.state.currentCursorIndex = 0;
+      if (this.elements.osmdContainer) {
+        this.elements.osmdContainer.scrollTop = 0;
+      }
     }
 
     while (this.state.currentCursorIndex < targetIdx && !this.osmd.cursor.Iterator.EndReached) {
       this.osmd.cursor.next();
       this.state.currentCursorIndex++;
+    }
+
+    this.osmd.cursor.show();
+
+    // Force centered scroll to ensure the line is correctly framed
+    if (this.osmd.cursor.cursorElement && this.elements.osmdContainer) {
+      const cursor = this.osmd.cursor.cursorElement;
+      const container = this.elements.osmdContainer;
+      
+      const cursorRect = cursor.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      
+      // Calculate where the cursor is relative to the container
+      const relativeTop = cursorRect.top - containerRect.top;
+      let scrollTarget = container.scrollTop + relativeTop - (container.clientHeight / 2) + (cursorRect.height / 2);
+      
+      // Clamp to 0 and ensure we don't jump erratically for early lines
+      scrollTarget = Math.max(0, scrollTarget);
+      
+      container.scrollTo({
+        top: scrollTarget,
+        behavior: this.state.isPlaying ? 'auto' : 'smooth'
+      });
     }
   }
 
@@ -553,11 +623,6 @@ updateLogic() {
 
     this.elements.playhead.style.left = this.tickToPixel(tick) + "px";
     
-    if (this.osmd && this.osmd.cursor) {
-      this.osmd.cursor.reset();
-      this.state.currentCursorIndex = 0;
-    }
-
     if (wasPlaying && !keepPlaying) this.play();
     this.updateVisuals();
   }
@@ -621,7 +686,7 @@ updateLogic() {
     this.elements.tempoDisplay.innerText = `Tempo: ${Math.round(bpm)} BPM`;
   }
 
-handleKeyDown(e) {
+  handleKeyDown(e) {
     if (!this.lastSpaceTime) {
       this.lastSpaceTime = 0;
     }
@@ -670,11 +735,26 @@ handleKeyDown(e) {
         const bar = this.tickToBar(this.state.currentTick);
         if (!bar) return;
 
-        const ticksPerBeat = (this.state.ppq * 4) / bar.d;
-        const direction = (e.code === "NumpadAdd") ? 1 : -1;
-        let newTick = this.state.currentTick + (ticksPerBeat * direction);
+        const barIdx = bar.bar - 1;
+        let newTick;
 
-        newTick = Math.max(0, Math.min(newTick, this.state.totalTicks));
+        if (e.code === "NumpadAdd") {
+          if (this.state.currentTick < bar.tickEnd - 2) {
+            newTick = bar.tickEnd;
+          } else if (barIdx + 1 < this.maps.bars.length) {
+            newTick = this.maps.bars[barIdx + 1].tickEnd;
+          } else {
+            newTick = this.state.totalTicks;
+          }
+        } else {
+          if (this.state.currentTick > bar.tickStart + 2) {
+            newTick = bar.tickStart;
+          } else if (barIdx > 0) {
+            newTick = this.maps.bars[barIdx - 1].tickStart;
+          } else {
+            newTick = 0;
+          }
+        }
 
         this.jumpToTick(newTick);
         break;
@@ -690,5 +770,8 @@ handleKeyDown(e) {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  window.app = new MusicPlayerEngine();
+});
+er("DOMContentLoaded", () => {
   window.app = new MusicPlayerEngine();
 });
