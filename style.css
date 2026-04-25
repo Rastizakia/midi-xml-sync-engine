@@ -176,11 +176,11 @@ body.pro-theme {
   top: 0;
   height: 100%;
   width: 1px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .beat-strong {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .loop-region {
@@ -210,7 +210,7 @@ body.pro-theme {
   overflow-y: auto;
   overflow-x: hidden;
   border: 1px solid var(--border-color);
-  height: 200px;
+  height: 235px;
   position: relative;
 }
 

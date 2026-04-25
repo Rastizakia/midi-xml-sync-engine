@@ -71,9 +71,9 @@ class MusicPlayerEngine {
     this.osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmd-container", {
       autoResize: true,
       drawTitle: false,
-      drawingParameters: "compacttight",
       pageBackgroundColor: "#ffffff",
       followCursor: true,
+      drawingParameters: "compacttight",
     });
     this.updateStatus("OSMD Ready");
   }
@@ -101,7 +101,7 @@ class MusicPlayerEngine {
     }
   }
 
-  playClick(isStrong) {
+  playClick(isStrong, time) {
     if (!this.state.metronomeEnabled) return;
     this.initAudio();
 
@@ -114,8 +114,9 @@ class MusicPlayerEngine {
     osc.connect(gain);
     gain.connect(this.audio.context.destination);
 
-    osc.start();
-    osc.stop(this.audio.context.currentTime + 0.03);
+    const playTime = time || this.audio.context.currentTime;
+    osc.start(playTime);
+    osc.stop(playTime + 0.03);
   }
 
   async handleMidiUpload(e) {
@@ -330,7 +331,7 @@ class MusicPlayerEngine {
 
   autoScaleTimeline() {
     const containerWidth = this.elements.timelineContainer.offsetWidth;
-    const barsToFit = Math.min(5, this.maps.bars.length);
+    const barsToFit = Math.min(12, this.maps.bars.length);
     const viewTicks = this.maps.bars[barsToFit] ? this.maps.bars[barsToFit].tickStart : this.state.totalTicks;
     this.state.pixelsPerTick = containerWidth / viewTicks;
   }
@@ -441,10 +442,15 @@ class MusicPlayerEngine {
   }
 
   play() {
+    this.initAudio();
     this.state.isPlaying = true;
-    this.state.startTimeSec = this.getTimeSec();
+    
+    this.state.audioStartTime = this.audio.context.currentTime;
     this.state.startTick = this.state.currentTick;
+    this.state.startTimeSec = this.getTimeSec();
+    
     this.state.lastBeat = -1;
+    this.state.lastScheduledTick = this.state.currentTick - 1;
 
     this.elements.playBtn.innerText = "Stop";
     this.elements.playBtn.classList.add('active');
@@ -467,9 +473,12 @@ class MusicPlayerEngine {
   updateLogic() {
     if (!this.state.isPlaying) return;
 
-    const elapsed = this.getTimeSec() - this.state.startTimeSec;
+    const audioNow = this.audio.context.currentTime;
+    const audioElapsed = audioNow - this.state.audioStartTime;
     const startSec = this.tickToSeconds(this.state.startTick);
-    this.state.currentTick = this.secondsToTick(startSec + elapsed);
+    const currentSongSec = startSec + audioElapsed;
+    
+    this.state.currentTick = this.secondsToTick(currentSongSec);
 
     const currentBpm = this.getBpmAtTick(this.state.currentTick);
     if (Math.abs(currentBpm - this.state.lastDisplayedBpm) > 0.1) {
@@ -483,25 +492,43 @@ class MusicPlayerEngine {
       this.state.loopEndTick !== null &&
       this.state.currentTick >= this.state.loopEndTick
     ) {
-      const loopEndSec = this.tickToSeconds(this.state.loopEndTick);
-      const overshootSec = (startSec + elapsed) - loopEndSec;
       this.jumpToTick(this.state.loopStartTick, true);
-      this.state.startTimeSec -= overshootSec;
     }
 
     this.processMetronome();
   }
 
   processMetronome() {
-    if (!this.state.metronomeEnabled) return;
+    if (!this.state.metronomeEnabled || !this.audio.context) return;
 
-    const bar = this.tickToBar(this.state.currentTick);
+    const lookaheadSec = 0.2;
+    const audioNow = this.audio.context.currentTime;
+    const audioElapsed = audioNow - this.state.audioStartTime;
+    const startSec = this.tickToSeconds(this.state.startTick);
+    const currentSongSec = startSec + audioElapsed;
+    
+    const lookaheadTick = this.secondsToTick(currentSongSec + lookaheadSec);
+    let checkTick = this.state.lastScheduledTick + 1;
+    
+    if (!this.maps.bars.length) return;
+
+    const bar = this.tickToBar(checkTick);
     const ticksPerBeat = (this.state.ppq * 4) / bar.d;
-    const beat = Math.floor((this.state.currentTick - bar.tickStart) / ticksPerBeat);
+    let nextBeatTick = bar.tickStart + Math.ceil((checkTick - bar.tickStart) / ticksPerBeat) * ticksPerBeat;
 
-    if (beat !== this.state.lastBeat) {
-      this.state.lastBeat = beat;
-      this.playClick(beat === 0);
+    while (nextBeatTick <= lookaheadTick) {
+      const beatTimeSec = this.tickToSeconds(nextBeatTick);
+      const delayInSong = beatTimeSec - currentSongSec;
+      const scheduledAudioTime = audioNow + delayInSong;
+
+      const barAtBeat = this.tickToBar(nextBeatTick);
+      const ticksPerBeatAtBeat = (this.state.ppq * 4) / barAtBeat.d;
+      const beatNum = Math.round((nextBeatTick - barAtBeat.tickStart) / ticksPerBeatAtBeat);
+
+      this.playClick(beatNum === 0, scheduledAudioTime);
+
+      this.state.lastScheduledTick = Math.floor(nextBeatTick);
+      nextBeatTick += ticksPerBeatAtBeat;
     }
   }
 
@@ -523,7 +550,7 @@ class MusicPlayerEngine {
     const currentBar = this.tickToBar(this.state.currentTick);
     barDisplay.innerText = `Bar: ${currentBar.bar}`;
     
-    const barsPerPage = 5;
+    const barsPerPage = 12;
     const pageNum = Math.floor((currentBar.bar - 1) / barsPerPage);
 
     if (pageNum !== this.state.currentPage) {
@@ -575,23 +602,19 @@ class MusicPlayerEngine {
 
     this.osmd.cursor.show();
 
-    // Force centered scroll to ensure the line is correctly framed
     if (this.osmd.cursor.cursorElement && this.elements.osmdContainer) {
       const cursor = this.osmd.cursor.cursorElement;
       const container = this.elements.osmdContainer;
-      
+
       const cursorRect = cursor.getBoundingClientRect();
       const containerRect = container.getBoundingClientRect();
-      
-      // Calculate where the cursor is relative to the container
+
       const relativeTop = cursorRect.top - containerRect.top;
       let scrollTarget = container.scrollTop + relativeTop - (container.clientHeight / 2) + (cursorRect.height / 2);
-      
-      // Clamp to 0 and ensure we don't jump erratically for early lines
+
       scrollTarget = Math.max(0, scrollTarget);
-      
-      container.scrollTo({
-        top: scrollTarget,
+
+      container.scrollTo({        top: scrollTarget,
         behavior: this.state.isPlaying ? 'auto' : 'smooth'
       });
     }
@@ -621,7 +644,13 @@ class MusicPlayerEngine {
     this.state.currentTick = tick;
     this.state.startTick = tick;
     this.state.startTimeSec = this.getTimeSec();
+    
+    if (this.audio.context) {
+      this.state.audioStartTime = this.audio.context.currentTime;
+    }
+    
     this.state.lastBeat = -1;
+    this.state.lastScheduledTick = tick - 1;
 
     this.elements.playhead.style.left = this.tickToPixel(tick) + "px";
     
@@ -647,6 +676,22 @@ class MusicPlayerEngine {
     reader.onload = async (ev) => {
       try {
         await this.osmd.load(ev.target.result);
+
+        this.osmd.setOptions({
+          renderXMeasuresPerLineAkaSystem: 12,
+          newSystemFromXML: false,
+          newPageFromXML: false,
+          drawingParameters: "compacttight"
+        });
+
+        const rules = this.osmd.EngravingRules;
+        rules.MinDistanceBetweenSystems = 1.0;
+        rules.BetweenSystemsDistance = 1.0;
+        rules.StaffDistance = 1.0;
+        rules.BetweenStaffDistance = 1.0;
+        rules.PageTopMargin = 0.0;
+        rules.PageBottomMargin = 0.0;
+
         this.osmd.render();
 
         this.cursorTimestamps = [];
@@ -660,7 +705,9 @@ class MusicPlayerEngine {
 
         this.osmd.cursor.reset();
         this.osmd.cursor.show();
-        this.osmd.cursor.cursorElement.id = "red-cursor";
+        if (this.osmd.cursor.cursorElement) {
+          this.osmd.cursor.cursorElement.id = "red-cursor";
+        }
         this.state.currentCursorIndex = 0;
 
         this.updateStatus(`MusicXML Loaded: ${file.name}`);
@@ -773,25 +820,17 @@ class MusicPlayerEngine {
         const bar = this.tickToBar(this.state.currentTick);
         if (!bar) return;
 
-        const barIdx = bar.bar - 1;
+        const ticksPerBeat = (this.state.ppq * 4) / bar.d;
         let newTick;
 
         if (e.code === "NumpadAdd") {
-          if (this.state.currentTick < bar.tickEnd - 2) {
-            newTick = bar.tickEnd;
-          } else if (barIdx + 1 < this.maps.bars.length) {
-            newTick = this.maps.bars[barIdx + 1].tickEnd;
-          } else {
-            newTick = this.state.totalTicks;
-          }
+          const beat = Math.floor((this.state.currentTick - bar.tickStart + 2) / ticksPerBeat);
+          newTick = bar.tickStart + (beat + 1) * ticksPerBeat;
+          if (newTick > this.state.totalTicks) newTick = this.state.totalTicks;
         } else {
-          if (this.state.currentTick > bar.tickStart + 2) {
-            newTick = bar.tickStart;
-          } else if (barIdx > 0) {
-            newTick = this.maps.bars[barIdx - 1].tickStart;
-          } else {
-            newTick = 0;
-          }
+          const beat = Math.floor((this.state.currentTick - bar.tickStart - 2) / ticksPerBeat);
+          newTick = bar.tickStart + beat * ticksPerBeat;
+          if (newTick < 0) newTick = 0;
         }
 
         this.jumpToTick(newTick);
