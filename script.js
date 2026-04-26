@@ -401,11 +401,20 @@ class MusicPlayerEngine {
       .filter(m => m.text.toLowerCase() !== "markeri")
       .sort((a, b) => a.tick - b.tick);
 
-    validMarkers.forEach(m => {
+    validMarkers.forEach((m, index) => {
       const btn = document.createElement("button");
       btn.className = "section-btn";
       btn.innerText = m.text;
-      btn.onclick = () => this.jumpToTick(m.tick);
+      btn.onclick = () => {
+        this.jumpToTick(m.tick);
+        
+        this.state.loopStartTick = m.tick;
+        const nextMarker = validMarkers[index + 1];
+        this.state.loopEndTick = nextMarker ? nextMarker.tick : this.state.totalTicks;
+        this.state.loopIsAutoSet = true;
+        
+        this.updateLoopVisual();
+      };
       markerButtons.appendChild(btn);
     });
   }
@@ -417,11 +426,17 @@ class MusicPlayerEngine {
     if (loopStartTick !== null) {
       loopStart.style.display = "block";
       loopStart.style.left = this.tickToPixel(loopStartTick) + "px";
+      loopStart.style.opacity = loopEnabled ? "1" : "0.5";
+    } else {
+      loopStart.style.display = "none";
     }
 
     if (loopEndTick !== null) {
       loopEnd.style.display = "block";
       loopEnd.style.left = this.tickToPixel(loopEndTick) + "px";
+      loopEnd.style.opacity = loopEnabled ? "1" : "0.5";
+    } else {
+      loopEnd.style.display = "none";
     }
 
     if (loopEnabled && loopStartTick !== null && loopEndTick !== null && loopEndTick > loopStartTick) {
@@ -632,6 +647,13 @@ class MusicPlayerEngine {
 
     if (e.button === 0) this.state.loopStartTick = bar.tickStart;
     if (e.button === 2) this.state.loopEndTick = bar.tickEnd;
+    
+    if (this.state.loopStartTick !== null && this.state.loopEndTick !== null) {
+      if (this.state.loopStartTick > this.state.loopEndTick) {
+        [this.state.loopStartTick, this.state.loopEndTick] = [this.state.loopEndTick, this.state.loopStartTick];
+      }
+    }
+
     this.state.loopIsAutoSet = false;
 
     this.updateLoopVisual();
